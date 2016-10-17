@@ -9,17 +9,21 @@
 (function (root, factory) {
     if (typeof define === 'function' && define.amd) {
         // AMD, Register as an anonymous module.
-        define([], factory);
+        define(['object-assign'], factory);
     } else if (typeof module === 'object' && module.exports) {
         // Node. Does not work with strict CommonJS, but only CommonJS-like environments
         // that support module.exports, like Node.
-        module.exports = factory();
+        module.exports = factory(['object-assign']);
     } else {
         // Browser globals (root is window)
-        root.StyleHelper = factory();
+        root.StyleHelper = factory('object-assign');
     }
-}(this, function () {
+}(this, function (objectAssign) {
     var inertSheet = null;
+
+    if (typeof Object.assign === "function") {
+        objectAssign = Object.assign;
+    }
 
     return {
 
@@ -156,7 +160,7 @@
             //   - inherited properties (hasOwnProperty() is false) (ex: cssText, length)
             //   - non-enumerable properties (propertyIsEnumerable() is false) <=> all properties retrievable from .item() (ex: 0: animation-delay)
             // This results in a trim CSSStyleDeclaration (or CSS2Properties on Firefox)
-            visibleComputedStyle = Object.assign({
+            visibleComputedStyle = objectAssign({
                 cssText: visibleComputedStyle.cssText, // keep cssText in case is present
             }, visibleComputedStyle);
 
@@ -203,26 +207,28 @@
          * @returns {Object|null} the filled object if the style is retrieved, null otherwise
          */
         getStyleAttributes: function (selector, sheet) {
-            sheet = sheet || {};
+            sheet = sheet || this.getInertSheet();
             var styleMatchMap = {},
                 cssStyleDeclaration = this.getRawStyleDeclaration(selector, sheet),
                 styleAttributes
             ;
 
-            if (cssStyleDeclaration !== null) {
-                // cssStyleDeclaration is not completely enumerable in Firefox (bug?)
-                // so instead we use cssText to parse the individual attributes
-                styleAttributes = cssStyleDeclaration.cssText.split(';');
-                styleAttributes.forEach(function (styleAttribute) {
-                    var splitStyleAttribute = styleAttribute.split(':');
+            // TODO: find a solution for Firefox. We need to return a live styleDeclaration we can alter.
 
-                    if (splitStyleAttribute.length === 2) {
-                        styleMatchMap[splitStyleAttribute[0].trim()] = splitStyleAttribute[1].trim();
-                    }
-                });
-            }
+            // if (cssStyleDeclaration !== null) {
+            //     // cssStyleDeclaration is not completely enumerable in Firefox (bug?)
+            //     // so instead we use cssText to parse the individual attributes
+            //     styleAttributes = cssStyleDeclaration.cssText.split(';');
+            //     styleAttributes.forEach(function (styleAttribute) {
+            //         var splitStyleAttribute = styleAttribute.split(':');
+            //
+            //         if (splitStyleAttribute.length === 2) {
+            //             styleMatchMap[splitStyleAttribute[0].trim()] = splitStyleAttribute[1].trim();
+            //         }
+            //     });
+            // }
 
-            return styleMatchMap;
+            return cssStyleDeclaration;
         },
 
         /**
@@ -232,6 +238,7 @@
          * @returns {CSSStyleDeclaration} if the selector exists, null otherwise
          */
         getRawStyleDeclaration: function (selector, sheet) {
+            sheet = sheet || this.getInertSheet();
             var cssRules = sheet.cssRules || [];
 
             for (var x = 0; x < cssRules.length; x++) {
@@ -338,10 +345,10 @@
                 styleDeclarationOrSelector = this.getStyleAttributes(styleDeclarationOrSelector);
             }
             if (styleDeclarationOrSelector) {
-                delete styleDeclaration[prop];
-                if (styleDeclaration.cssText) {
+                delete styleDeclarationOrSelector[prop];
+                if (styleDeclarationOrSelector.cssText) {
                     // remove also from cssText
-                    styleDeclaration.cssText = styleDeclaration.cssText.replace(new RegExp("[;^] *" + prop + ":[^;]+(?=;)"), "");
+                    styleDeclarationOrSelector.cssText = styleDeclarationOrSelector.cssText.replace(new RegExp("[;^] *" + prop + ":[^;]+(?=;)"), "");
                 }
             }
         },
