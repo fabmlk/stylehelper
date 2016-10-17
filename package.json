@@ -15,5 +15,8 @@
   "bugs": {
     "url": "https://github.com/fabmlk/stylehelper/issues"
   },
-  "homepage": "https://github.com/fabmlk/stylehelper#readme"
+  "homepage": "https://github.com/fabmlk/stylehelper#readme",
+  "dependencies": {
+    "object-assign": "^4.1.0"
+  }
 }
