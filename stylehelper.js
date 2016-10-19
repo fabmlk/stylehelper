@@ -28,7 +28,8 @@
     return {
 
         /**
-         * Creates a new <style> in the head for the .inert class rules if not yet created.
+         * Returns the stylesheet containing the .inert rule. If it does not exist, a new <style> is prepended
+         * in the head with the newly created .inert class rule.
          * (There was a talk to add a inert attribute in HTML5 but it is not implemented and the spec
          * is not working on it so much...)
          * @returns {Stylesheet} the stylesheet we injected .inert style on
@@ -97,7 +98,7 @@
             var cssText = "";
 
 
-            if (style.cssText) { // CSSStyleDeclaration
+            if (style.cssText) { // present and non empty cssText
                 return style.cssText;
             }
 
@@ -110,8 +111,9 @@
 
 
         /**
-         * Returns the css computed style. If the element is not visisble, this function calculates its style
-         * if it was visible.
+         * Returns the css computed style of an element. If the element is not visible, this function tries to calculate
+         * the style of the element as it would appear if visible.
+         *
          * The object returned is a trimmed CSSStyleDeclaration due to the use of Object.assign() to clone
          * the resultset. As such, the returned object is not a CSSStyleDeclaration anymore and does not contain
          * functions like getPropertyValue, getPropertyPriority, length property, numeric keys etc...
@@ -183,7 +185,7 @@
 
 
         /**
-         * Returns the loaded stylesheet with a data-title attribute matching the argument.
+         * Returns a reference to the stylesheet with the data-title attribute passed in argument.
          * We use data-title instead of title attribute as this is reserved for alternate stylesheets.
          * @param datatitle - the data-title attribute name to look for
          * @returns {Stylesheet} the found stylesheet or null
@@ -201,9 +203,10 @@
         },
 
         /**
-         * Returns an object that contains the style defined for 'selector' in the stylesheet 'sheet'.
+         * Returns an object that contains the style defined for 'selector' in the stylesheet 'sheet'
+         * (defaults to inert stylesheet if not provided).
          * @param selector (String} the selector to retrieve the style from
-         * @param sheet {Stylesheet} the stylesheet where to look for the selector
+         * @param sheet {Stylesheet} (Optional) the stylesheet where to look for the selector
          * @returns {Object|null} the filled object if the style is retrieved, null otherwise
          */
         getStyleAttributes: function (selector, sheet) {
@@ -213,7 +216,8 @@
                 styleAttributes
             ;
 
-            // TODO: find a solution for Firefox. We need to return a live styleDeclaration we can alter.
+            // TODO: find a solution for Firefox. We need to return a live styleDeclaration we can alter later
+            // instead of a simple literal object.
 
             // if (cssStyleDeclaration !== null) {
             //     // cssStyleDeclaration is not completely enumerable in Firefox (bug?)
@@ -232,9 +236,9 @@
         },
 
         /**
-         * Get raw CSSStyleDeclaration object associated to a selector in a stylesheet.
+         * Get raw CSSStyleDeclaration object associated to a selector in a stylesheet (default to inert stylesheet if absent).
          * @param selector {String} the selector to retrieve
-         * @param sheet {Stylesheet} the sheet where to search the selector
+         * @param sheet {Stylesheet} (Optional) the sheet where to search the selector
          * @returns {CSSStyleDeclaration} if the selector exists, null otherwise
          */
         getRawStyleDeclaration: function (selector, sheet) {
@@ -267,7 +271,7 @@
                 return styleDeclaration;
             }
 
-            if (sheet.insertRule) {
+            if (sheet.insertRule) { // standard
                 sheet.insertRule(selector + '{' + body + '}', 0); // insert first
             } else { // non-standard addRule
                 sheet.addRule(selector, body, 0);
@@ -282,15 +286,19 @@
          * or "inert stylesheet" if no stylesheet provided.
          * @param {String} selector - the selector rule to add, ex ".foo"
          * @param {CSSStyleDeclaration|CSS2Properties} data
+         * @param {Stylesheet} (Optional) sheet - the stylesheet where to add the rule
          */
-        addCSSRule: function (selector, data) {
-            this.addRawCSSRule(selector, this.getCssTextFromStyle(data));
+        addCSSRule: function (selector, data, sheet) {
+            this.addRawCSSRule(selector, this.getCssTextFromStyle(data), sheet || this.getInertSheet());
         },
 
         /**
-         * Make an element "inert" aka totally invisible in the DOM.
+         * Make an element "inert" aka totally invisible in the DOM. Saves into 2nd param the styles
+         * that were overriden during the process.
          * @param {HTMLElement} elt - the DOM node we want to make inert
-         * @returns {Object} (Optional) an objet holding all the original styles of arg elt that were overriden to make it inert
+         * @param {Object} (Optional) affectedStyles - an empty object that will contain the overriden styles
+         * @returns {Object} (Optional) an object holding all the original styles of arg elt that were overriden
+         *                              to make it inert
          */
         makeInert: function (elt, affectedStyles) {
             var defaults = window.getComputedStyle(elt),
@@ -298,23 +306,23 @@
             ;
 
             // save all default styles we will override by the .inert rule
-            // Note: this code must come before adding the .inert class as it
+            // Note: this code must come before adding the .inert class to the element as it
             // will dynamically change our referenced defaults object in Firefox
             // despite being read-only (not happening in Chrome).
-            for (var prop in inertStyle) {
-                if (inertStyle.hasOwnProperty(prop)) {
-                    // we make sure prop the property is camel-cased as at least Firefox
-                    // doesn't provide hyphenated properties when vendor-prefixed
-                    prop = prop.replace(/-([a-z])/g, function(str,letter) {
-                        return letter.toUpperCase();
-                    });
-                    if (affectedStyles) {
+            if (affectedStyles) {
+                for (var prop in inertStyle) {
+                    if (inertStyle.hasOwnProperty(prop)) {
+                        // we make sure prop the property is camel-cased as at least Firefox
+                        // doesn't provide hyphenated properties when vendor-prefixed
+                        prop = prop.replace(/-([a-z])/g, function (str, letter) {
+                            return letter.toUpperCase();
+                        });
                         affectedStyles[prop] = defaults[prop] || "initial";
                     }
                 }
             }
 
-            elt.dataset.tabindex = elt.getAttribute("tabindex");
+            elt.dataset.tabindex = elt.getAttribute("tabindex"); // save original tabindex to restore later
             elt.setAttribute("tabindex", "-1"); // prevent focusable/tabbable
 
             elt.classList.add("inert");
@@ -352,5 +360,24 @@
                 }
             }
         },
+
+
+        /**
+         * Remove a css rule defined by its selector from the stylesheet (defaults to inert stylesheet if arg not specified).
+         * If the stylesheet contains duplicated rules, only the first one will be removed.
+         * @param {String} selector - the selector matching the rule to remove
+         * @param {Stylesheet} (Optional) sheet - the sheet to remove the selector from
+         */
+        removeRule: function (selector, sheet) {
+            sheet = sheet || this.getInertSheet();
+            var cssRules = sheet.cssRules || [];
+
+            for (var x = 0; x < cssRules.length; x++) {
+                if (cssRules[x].selectorText == selector) {
+                    sheet.deleteRule(x);
+                    break;
+                }
+            }
+        }
     };
 }));
