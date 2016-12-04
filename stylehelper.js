@@ -13,17 +13,13 @@
     } else if (typeof module === 'object' && module.exports) {
         // Node. Does not work with strict CommonJS, but only CommonJS-like environments
         // that support module.exports, like Node.
-        module.exports = factory(['object-assign']);
+        module.exports = factory();
     } else {
         // Browser globals (root is window)
-        root.StyleHelper = factory('object-assign');
+        root.StyleHelper = factory();
     }
-}(this, function (objectAssign) {
+}(this, function () {
     var inertSheet = null;
-
-    if (typeof Object.assign === "function") {
-        objectAssign = Object.assign;
-    }
 
     return {
 
@@ -39,19 +35,19 @@
 
             if (inertSheet === null) {
                 css = '.inert {' +
-                        /* position: absolute changes display to block.
-                         We set display explicitly so that makeInert() can returns default display style too.
-                         */
-                        'position: absolute;' +
-                        'display: block;' + /* could be anything actually */
-                        'visibility: hidden;' +
-                        'z-index: -1;' +
-                        '-webkit-user-select: none;' +
-                        '-moz-user-select: none;' +
-                        '-ms-user-select: none;' +
-                        'user-select: none;' +
-                        'pointer-events: none;' +
-                '}';
+                    /* position: absolute changes display to block.
+                     We set display explicitly so that makeInert() can returns default display style too.
+                     */
+                    'position: absolute;' +
+                    'display: block;' + /* could be anything actually */
+                    'visibility: hidden;' +
+                    'z-index: -1;' +
+                    '-webkit-user-select: none;' +
+                    '-moz-user-select: none;' +
+                    '-ms-user-select: none;' +
+                    'user-select: none;' +
+                    'pointer-events: none;' +
+                    '}';
                 head = document.head || document.getElementsByTagName('head')[0];
                 style = document.createElement('style');
                 style.type = 'text/css';
@@ -91,7 +87,7 @@
          * See https://bugzilla.mozilla.org/show_bug.cgi?id=137687.
          * (still present in version 49.0.1).
          *
-         * @param {Object} style - a CSSStyleDeclaration or CSS2Properties or object as returned from getVisibleComputedStyle()
+         * @param {Object} style - a CSSStyleDeclaration or CSS2Properties or object as returned from cloneNormalizedComputedStyle()
          * @returns {String} the css text
          */
         getCssTextFromStyle: function (style) {
@@ -103,7 +99,11 @@
             }
 
             for (var prop in style) {
-                cssText += prop + ": " + (style.getPropertyValue ? style.getPropertyValue(prop) : style[prop]) + "; ";
+                if (isNaN(prop) && typeof prop !== "function") {
+                    // we cannot use getPropertyValue() as Firefox complains that 'style' is not a real CSSStyleDeclaration
+                    // when style is CustomCSSStyleDeclaration object (even though instanceof style CSSStyleDeclaration => true)
+                    cssText += prop + ": " + (style.getPropertyValue ? style.getPropertyValue(prop) : style[prop]) + "; ";
+                }
             }
 
             return cssText;
@@ -111,19 +111,41 @@
 
 
         /**
+         * Create a trimmed object whose properties are copied from a CSSStyleDeclaration or CSS2Properties object (Firefox).
+         * Functions of the interface are not inherited (getPropertyValue(), item() etc...).
+         * cssText is normalized as Firefox returns empty string (see above getCssTextFromStyle).
+         *
+         * @param {CSSStyleDeclaration|CSS2Properties] computedStyle
+         * @returns {Object} the normalized copy
+         */
+        cloneNormalizedComputedStyle: function (computedStyle) {
+            var copy = {};
+
+            for (var prop in computedStyle) {
+                if (typeof computedStyle[prop] !== "function") {
+                    copy[prop] = computedStyle[prop];
+                }
+            }
+
+            copy.cssText = this.getCssTextFromStyle(copy);
+
+            return copy;
+        },
+
+
+        /**
          * Returns the css computed style of an element. If the element is not visible, this function tries to calculate
          * the style of the element as it would appear if visible.
          *
-         * The object returned is a trimmed CSSStyleDeclaration due to the use of Object.assign() to clone
+         * The object returned is a trimmed CSSStyleDeclaration due to the use of cloneNormalizedComputedStyle to clone
          * the resultset. As such, the returned object is not a CSSStyleDeclaration anymore and does not contain
          * functions like getPropertyValue, getPropertyPriority, length property, numeric keys etc...
          * It is then a simple object literal whose keys are the css key rule and values the css values.
          * The exception is the preservation of the cssText property.
-         * Note that on Firefox, the resulset was derived from a CSS2Properties instead of CSSStyleDeclaration, and as
-         * such does not provide a usable cssText: we thus remove it.
+         * Note that on Firefox, the resulset was derived from a CSS2Properties instead of CSSStyleDeclaration.
          *
          * @param {Element} elt
-         * @returns {Object}
+         * @returns {Object} - object as returned from cloneNormalizedComputedStyle()
          */
         getVisibleComputedStyle: function (elt) {
             var savedDisplayNone = [],
@@ -135,7 +157,7 @@
                     top: "-999999px"
                 },
                 visibleComputedStyle
-            ;
+                ;
 
             // Algo: for any ancestor with display none, display the ancestor back, outside of the viewport,
             // and compute the style there. On the way, save any overriden inline styles so we can
@@ -154,21 +176,9 @@
                     }
                 }
             }
-            visibleComputedStyle = window.getComputedStyle(elt);
 
             // we shallow copy to make sure the styles remain unchanged if the DOM changes.
-            // Object.assign removes:
-            //   - properties with values undefined|null (ex: src: "")
-            //   - inherited properties (hasOwnProperty() is false) (ex: cssText, length)
-            //   - non-enumerable properties (propertyIsEnumerable() is false) <=> all properties retrievable from .item() (ex: 0: animation-delay)
-            // This results in a trim CSSStyleDeclaration (or CSS2Properties on Firefox)
-            visibleComputedStyle = objectAssign({
-                cssText: visibleComputedStyle.cssText, // keep cssText in case is present
-            }, visibleComputedStyle);
-
-            if (visibleComputedStyle.cssText === "") { // Firefox
-                delete visibleComputedStyle.cssText;
-            }
+            visibleComputedStyle = this.cloneNormalizedComputedStyle(window.getComputedStyle(elt));
 
             // restore modified properties
             savedDisplayNone.forEach(function (saved) {
@@ -202,38 +212,6 @@
             return sheet;
         },
 
-        /**
-         * Returns an object that contains the style defined for 'selector' in the stylesheet 'sheet'
-         * (defaults to inert stylesheet if not provided).
-         * @param selector (String} the selector to retrieve the style from
-         * @param sheet {Stylesheet} (Optional) the stylesheet where to look for the selector
-         * @returns {Object|null} the filled object if the style is retrieved, null otherwise
-         */
-        getStyleAttributes: function (selector, sheet) {
-            sheet = sheet || this.getInertSheet();
-            var styleMatchMap = {},
-                cssStyleDeclaration = this.getRawStyleDeclaration(selector, sheet),
-                styleAttributes
-            ;
-
-            // TODO: find a solution for Firefox. We need to return a live styleDeclaration we can alter later
-            // instead of a simple literal object.
-
-            // if (cssStyleDeclaration !== null) {
-            //     // cssStyleDeclaration is not completely enumerable in Firefox (bug?)
-            //     // so instead we use cssText to parse the individual attributes
-            //     styleAttributes = cssStyleDeclaration.cssText.split(';');
-            //     styleAttributes.forEach(function (styleAttribute) {
-            //         var splitStyleAttribute = styleAttribute.split(':');
-            //
-            //         if (splitStyleAttribute.length === 2) {
-            //             styleMatchMap[splitStyleAttribute[0].trim()] = splitStyleAttribute[1].trim();
-            //         }
-            //     });
-            // }
-
-            return cssStyleDeclaration;
-        },
 
         /**
          * Get raw CSSStyleDeclaration object associated to a selector in a stylesheet (default to inert stylesheet if absent).
@@ -302,8 +280,8 @@
          */
         makeInert: function (elt, affectedStyles) {
             var defaults = window.getComputedStyle(elt),
-                inertStyle = this.getStyleAttributes('.inert', this.getInertSheet())
-            ;
+                inertStyle = this.getRawStyleDeclaration('.inert', this.getInertSheet())
+                ;
 
             // save all default styles we will override by the .inert rule
             // Note: this code must come before adding the .inert class to the element as it
@@ -342,7 +320,7 @@
          * Remove a css property from a CSSStyleDeclaration-like.
          * This method accepts as param both a selector whose declaration we want to alter, or a direct declaration.
          * If the param is a declaration object, it can be a CSSStyleDeclaration, CSS2Properties or object as returned by
-         * getVisibleComputedStyle.
+         * cloneNormalizedComputedStyle.
          *
          * @param {Object|String] styleDeclaration or selector
          * @param {String} prop - the name of the property to remove
@@ -350,7 +328,7 @@
         removeProp: function (styleDeclarationOrSelector, prop) {
 
             if (typeof styleDeclarationOrSelector === "string") { // got a selector
-                styleDeclarationOrSelector = this.getStyleAttributes(styleDeclarationOrSelector);
+                styleDeclarationOrSelector = this.getRawStyleDeclaration(styleDeclarationOrSelector);
             }
             if (styleDeclarationOrSelector) {
                 delete styleDeclarationOrSelector[prop];
