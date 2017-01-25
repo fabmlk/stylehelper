@@ -100,8 +100,6 @@
 
             for (var prop in style) {
                 if (isNaN(prop) && typeof prop !== "function") {
-                    // we cannot use getPropertyValue() as Firefox complains that 'style' is not a real CSSStyleDeclaration
-                    // when style is CustomCSSStyleDeclaration object (even though instanceof style CSSStyleDeclaration => true)
                     cssText += prop + ": " + (style.getPropertyValue ? style.getPropertyValue(prop) : style[prop]) + "; ";
                 }
             }
@@ -334,7 +332,7 @@
                 delete styleDeclarationOrSelector[prop];
                 if (styleDeclarationOrSelector.cssText) {
                     // remove also from cssText
-                    styleDeclarationOrSelector.cssText = styleDeclarationOrSelector.cssText.replace(new RegExp("[;^] *" + prop + ":[^;]+(?=;)"), "");
+                    styleDeclarationOrSelector.cssText = styleDeclarationOrSelector.cssText.replace(new RegExp("(;|^) *" + prop + ":[^;]+(?=;)"), "");
                 }
             }
         },
